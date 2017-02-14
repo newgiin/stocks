@@ -1,8 +1,10 @@
-"""Prints stocks rated "Buy" by analysts on http://quotes.wsj.com/company-list.
+"""Prints US stocks analysts rated "Buy" on http://quotes.wsj.com/company-list.
 
-usage: wsj.py SECTOR
-  SECTOR should be a sector as listed under the sector browse page, e.g.
+usage: wsj.py SECTOR [MIN_RATINGS]
+  SECTOR: A sector as listed under the sector browse page, e.g.
   "basic materials/resources". Case insensitive.
+
+  MIN_RATINGS: Skip stocks with less than this number of ratings. 
 """
 import pyquery
 import sys
@@ -10,9 +12,12 @@ import urllib
 
 
 def main(argv):
+  min_ratings = None
   if len(argv) < 2:
-    print 'usage: wsj.py SECTOR'
+    print 'usage: wsj.py SECTOR [MIN_RATINGS]'
     sys.exit(1)
+  if len(argv) > 2:
+    min_ratings = int(argv[2])
 
   page = get_dom('http://quotes.wsj.com/company-list')
   target_sector = argv[1].title()
@@ -25,9 +30,10 @@ def main(argv):
       for subsectors in children[1]:
         subsector_href = subsectors.getchildren()[0].attrib['href']
         for name, href, country, exchange in get_companies(subsector_href):
+          analysis_url = href + '/research-ratings'
           if (country == 'United States' and
-              get_consensus(href + '/research-ratings') == 'Buy'):
-            print (name, href)
+              get_consensus(analysis_url, min_ratings) == 'Buy'):
+            print (name, analysis_url)
       break
   else:
     print "No sector was found matching '%s'." % target_sector
@@ -63,15 +69,26 @@ def get_companies(subsector_href):
         yield result
 
 
-def get_consensus(href):
+def get_consensus(href, min_ratings):
   page = get_dom(href)
   try:
     consensus_table = page('.cr_analystRatings .cr_dataTable tbody')[0]
   except IndexError:  # Stock has no analysis
     return None
+  num_ratings = get_total_ratings(consensus_table)
+  if min_ratings is not None and num_ratings < min_ratings:
+    return None
   consensus_row = consensus_table.getchildren()[5]
   curr_consensus = consensus_row.getchildren()[3]
   return curr_consensus.cssselect('.numValue-content')[0].text.strip()
+
+
+def get_total_ratings(consensus_table):
+  total = 0
+  for i in xrange(5):
+    row = consensus_table[i]
+    total += int(row.getchildren()[3].cssselect('.data_data')[0].text)
+  return total
 
 
 main(sys.argv)
